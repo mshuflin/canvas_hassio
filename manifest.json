@@ -2,13 +2,18 @@
   "domain": "canvas",
   "name": "Canvas",
   "config_flow": true,
-  "dependencies": ["frontend", "http"],
-  "documentation": "https://github.com/thomergil/canvas_hassio",
-  "issue_tracker": "https://github.com/thomergil/canvas_hassio/issues",
-  "requirements": [
-    "canvas_parent_api @ git+https://github.com/thomergil/canvas_parent_api.git@master"
+  "dependencies": [
+    "frontend",
+    "http"
   ],
-  "codeowners": ["@thomergil"],
+  "documentation": "https://github.com/mshuflin/canvas_hassio",
+  "issue_tracker": "https://github.com/mshuflin/canvas_hassio/issues",
+  "requirements": [
+    "canvas_parent_api @ git+https://github.com/mshuflin/canvas_parent_api.git@main"
+  ],
+  "codeowners": [
+    "@mshuflin"
+  ],
   "iot_class": "cloud_polling",
-  "version": "0.1.0"
+  "version": "0.1.1"
 }

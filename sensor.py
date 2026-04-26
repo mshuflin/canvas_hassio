@@ -14,6 +14,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.storage import Store
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN, SCAN_INT, CONF_DISABLE_PERSISTENCE, DEFAULT_DISABLE_PERSISTENCE
 
@@ -87,10 +88,13 @@ async def async_setup_entry(
         else:
             entities.append(CanvasSensor(description, hub))
 
-    async_add_entities(entities, True)
+    async_add_entities(entities, False)
+    
+    # Trigger first refresh in background to avoid setup timeout
+    hass.async_create_task(hub.async_request_refresh())
 
 
-class CanvasSensor(SensorEntity):
+class CanvasSensor(CoordinatorEntity, SensorEntity):
     """Canvas Sensor Definition."""
     entity_description: CanvasEntityDescription
 
@@ -99,24 +103,33 @@ class CanvasSensor(SensorEntity):
         description: CanvasEntityDescription,
         hub
     ) -> None:
+        super().__init__(hub)
         self._hub = hub
         self._attr_name = description.name
         self._attr_unique_id = f"{description.unique_id}"
         self._entity_description = description
-        self._attr_canvas_data = {}
 
-        # No complex storage needed for base sensors
+    @property
+    def _canvas_data(self):
+        """Return the data from the coordinator."""
+        if not self.coordinator.data:
+            return []
+        
+        # Call the value_fn to get the specific data slice (students, courses, etc.)
+        # Note: the value_fn in SENSORS now calls synchronous poll_... methods
+        return self._entity_description.value_fn(self.coordinator)
 
     @property
     def extra_state_attributes(self):
         """Add all data - cards need to see everything."""
-        if not self._attr_canvas_data:
+        data = self._canvas_data
+        if not data:
             return {f"{self._entity_description.key}_count": 0}
 
         # Convert all data for UI cards - no limits
         data_list = []
 
-        for item in self._attr_canvas_data:
+        for item in data:
             if item is None:
                 continue
 
@@ -129,15 +142,14 @@ class CanvasSensor(SensorEntity):
 
         return {
             f"{self._entity_description.key}": data_list,
-            f"{self._entity_description.key}_count": len(self._attr_canvas_data)
+            f"{self._entity_description.key}_count": len(data)
         }
 
     async def async_update(self) -> None:
         """Fetch new state data for the sensor.
-
-        This is the only method that should fetch new data for Home Assistant.
+        
+        This is handled by the coordinator.
         """
-        self._attr_canvas_data = await self._entity_description.value_fn(self._hub)
         return
 
 
@@ -173,8 +185,11 @@ class CanvasHomeworkEventSensor(CanvasSensor):
 
         self._loaded_from_storage = False
 
-    async def async_update(self) -> None:
-        """Fetch new state data and fire events for homework changes."""
+    async def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        if not self.coordinator.data:
+            return
+
         try:
             # Load state from storage on first update (only if persistence enabled)
             if not self._loaded_from_storage and not self._persistence_disabled:
@@ -183,25 +198,11 @@ class CanvasHomeworkEventSensor(CanvasSensor):
             elif self._persistence_disabled:
                 self._loaded_from_storage = True  # Skip storage loading
 
-            # Get current data with validation
-            current_students = await self._hub.poll_observees() or []
-            current_courses = await self._hub.poll_courses() or []
-            current_assignments = await self._hub.poll_pending_assignments() or []
-            current_submissions = await self._hub.poll_submissions() or []
-
-            # Validate API responses
-            if not isinstance(current_students, list):
-                _LOGGER.warning(f"Invalid students data type: {type(current_students)}")
-                current_students = []
-            if not isinstance(current_courses, list):
-                _LOGGER.warning(f"Invalid courses data type: {type(current_courses)}")
-                current_courses = []
-            if not isinstance(current_assignments, list):
-                _LOGGER.warning(f"Invalid assignments data type: {type(current_assignments)}")
-                current_assignments = []
-            if not isinstance(current_submissions, list):
-                _LOGGER.warning(f"Invalid submissions data type: {type(current_submissions)}")
-                current_submissions = []
+            # Get current data from coordinator
+            current_students = self.coordinator.data.get("students", [])
+            current_courses = self.coordinator.data.get("courses", [])
+            current_assignments = self.coordinator.data.get("pending_assignments", [])
+            current_submissions = self.coordinator.data.get("submissions", [])
 
             # Update student info cache
             await self._update_student_info(current_students)
@@ -224,22 +225,25 @@ class CanvasHomeworkEventSensor(CanvasSensor):
                 # Save state after processing
                 await self._save_state_to_storage()
 
-            # Update stored state
-            self._attr_canvas_data = current_assignments
-
             # Log diagnostic info
             total_assignments = len(current_assignments)
             total_known = sum(len(ids) for ids in self._known_assignment_ids_per_student.values())
-            total_by_student = sum(len(assignments) for assignments in assignments_by_student.values())
-            _LOGGER.info(f"Canvas API returned {total_assignments} assignments, mapped {total_by_student} to students, tracking {total_known} known assignments across {len(self._known_assignment_ids_per_student)} students")
+            _LOGGER.info(f"Canvas data update processed: {total_assignments} assignments, tracking {total_known} known across {len(self._known_assignment_ids_per_student)} students")
 
-            # Log per-student assignment counts
-            for student_id, assignments in assignments_by_student.items():
-                student_name = self._student_info.get(student_id, {}).get('name', student_id)
-                _LOGGER.info(f"Student {student_name} ({student_id}): {len(assignments)} assignments mapped")
+            # Finalize HA state update
+            self.async_write_ha_state()
 
         except Exception as e:
-            _LOGGER.error(f"Error updating homework events sensor: {e}")
+            _LOGGER.error(f"Error processing homework events from coordinator: {e}")
+
+    async def async_update(self) -> None:
+        """Override async_update since we use coordinator updates."""
+        return
+
+    @property
+    def _canvas_data(self):
+        """Return data for extra_state_attributes."""
+        return self.coordinator.data.get("pending_assignments", []) if self.coordinator.data else []
 
     async def _update_student_info(self, students) -> None:
         """Update cached student information."""
@@ -476,9 +480,10 @@ class CanvasHomeworkEventSensor(CanvasSensor):
             _LOGGER.error(f"Failed to save homework state to storage: {e}")
 
     @property
-    def state(self) -> str:
+    def state(self) -> int:
         """Return the state of the sensor."""
-        return len(self._attr_canvas_data) if self._attr_canvas_data else 0
+        data = self._canvas_data
+        return len(data) if data else 0
 
     @property
     def extra_state_attributes(self):

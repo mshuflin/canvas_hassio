@@ -30,7 +30,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up canvas from a config entry."""
     hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN][entry.entry_id] = CanvasHub(hass)
+    hass.data[DOMAIN][entry.entry_id] = CanvasHub(hass, entry)
     await hass.config_entries.async_forward_entry_setups(entry, HA_SENSOR)
     return True
 
