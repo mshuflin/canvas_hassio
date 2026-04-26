@@ -14,7 +14,6 @@ from canvas_parent_api.models.submission import Submission
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import CONF_BASEURI, CONF_SECRET, DEFAULT_SEMAPHORE, DOMAIN, SCAN_INT, CONF_SEMAPHORE
 
@@ -35,7 +34,6 @@ class CanvasHub(DataUpdateCoordinator):
         self._secret = entry.data[CONF_SECRET]
         self._client = Canvas(f"{self._baseuri}", f"{self._secret}")
         self._semaphore = asyncio.Semaphore(entry.options.get(CONF_SEMAPHORE, DEFAULT_SEMAPHORE))
-        self._session = async_get_clientsession(hass)
 
     async def _async_update_data(self):
         """Update data via library."""
@@ -134,23 +132,12 @@ class CanvasHub(DataUpdateCoordinator):
             return await self._client.assignments(student_id,course_id)
 
     async def get_submissions(self, student_id, course_id, sem):
-        """Get handler for submissions using observer-friendly endpoint."""
+        """Get handler for submissions with graceful error handling."""
         async with sem:
-            # The standard endpoint courses/{course_id}/students/submissions is restricted for observers.
-            # We use the observer-friendly endpoint: users/{user_id}/courses/{course_id}/submissions
-            url = f"{self._baseuri}/api/v1/users/{student_id}/courses/{course_id}/submissions?per_page=50"
-            headers = {"Authorization": f"Bearer {self._secret}"}
-            
             try:
-                async with self._session.get(url, headers=headers) as response:
-                    if response.status in [401, 403]:
-                        _LOGGER.warning("Access denied to submissions for student %s in course %s (Status: %s)", 
-                                       student_id, course_id, response.status)
-                        return []
-                    response.raise_for_status()
-                    return await response.json()
+                return await self._client.submissions(student_id, course_id)
             except Exception as err:
-                _LOGGER.warning("Error fetching submissions for student %s in course %s: %s", 
+                _LOGGER.warning("Access denied or error fetching submissions for student %s in course %s: %s", 
                                student_id, course_id, err)
                 return []
 

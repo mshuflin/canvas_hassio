@@ -185,11 +185,16 @@ class CanvasHomeworkEventSensor(CanvasSensor):
 
         self._loaded_from_storage = False
 
-    async def _handle_coordinator_update(self) -> None:
+    def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
         if not self.coordinator.data:
             return
 
+        # Trigger async processing in background task to comply with HA synchronous callback
+        self.hass.async_create_task(self._async_process_homework_events())
+
+    async def _async_process_homework_events(self) -> None:
+        """Process homework events asynchronously."""
         try:
             # Load state from storage on first update (only if persistence enabled)
             if not self._loaded_from_storage and not self._persistence_disabled:
