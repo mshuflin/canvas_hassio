@@ -88,6 +88,14 @@ async def async_setup_entry(
         else:
             entities.append(CanvasSensor(description, hub))
 
+    # Add Master Student Sensors for each student found in coordinator data
+    if hub.data and "students" in hub.data:
+        for student in hub.data["students"]:
+            student_id = str(getattr(student, "id", ""))
+            student_name = getattr(student, "name", f"Student {student_id}")
+            if student_id:
+                entities.append(CanvasMasterStudentSensor(hub, student_id, student_name))
+
     async_add_entities(entities, False)
     
     # Trigger first refresh in background to avoid setup timeout
@@ -521,3 +529,29 @@ class CanvasHomeworkEventSensor(CanvasSensor):
             "last_update": datetime.now().isoformat()
         })
         return base_attrs
+
+
+class CanvasMasterStudentSensor(CoordinatorEntity, SensorEntity):
+    """Canvas Master Student Sensor exposing the nested master payload."""
+
+    def __init__(self, coordinator, student_id, student_name) -> None:
+        """Initialize."""
+        super().__init__(coordinator)
+        self.student_id = student_id
+        self._student_name = student_name
+        self._attr_name = f"Canvas {student_name} Master"
+        self._attr_unique_id = f"canvas_master_{student_id}"
+
+    @property
+    def native_value(self):
+        """Return the state of the sensor."""
+        master_data = self.coordinator.data.get("master", {}).get(self.student_id, {})
+        courses = master_data.get("courses", {})
+        return len(courses)
+
+    @property
+    def extra_state_attributes(self):
+        """Return the state attributes (the master payload for this student)."""
+        if not self.coordinator.data or "master" not in self.coordinator.data:
+            return {}
+        return self.coordinator.data["master"].get(self.student_id, {})

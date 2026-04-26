@@ -72,8 +72,8 @@ class CanvasHub(DataUpdateCoordinator):
                         if enrollments and len(enrollments) > 0:
                             enrollment = enrollments[0]
                             if isinstance(enrollment, dict):
-                                grades["score"] = enrollment.get("computed_current_score")
-                                grades["grade"] = enrollment.get("computed_current_grade")
+                                grades["score"] = enrollments[0].get("computed_current_score")
+                                grades["grade"] = enrollments[0].get("computed_current_grade")
                             else:
                                 grades["score"] = getattr(enrollment, "computed_current_score", None)
                                 grades["grade"] = getattr(enrollment, "computed_current_grade", None)
