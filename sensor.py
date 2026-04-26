@@ -81,6 +81,9 @@ async def async_setup_entry(
     """Set up the sensor platform."""
     hub = hass.data[DOMAIN][config_entry.entry_id]
 
+    # Explicitly await the first refresh so we have student data for dynamic sensor creation
+    await hub.async_config_entry_first_refresh()
+
     entities = []
     for description in SENSORS:
         if description.key == "homework_events":
@@ -97,9 +100,6 @@ async def async_setup_entry(
                 entities.append(CanvasMasterStudentSensor(hub, student_id, student_name))
 
     async_add_entities(entities, False)
-    
-    # Trigger first refresh in background to avoid setup timeout
-    hass.async_create_task(hub.async_request_refresh())
 
 
 class CanvasSensor(CoordinatorEntity, SensorEntity):
