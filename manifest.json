@@ -9,7 +9,7 @@
   "documentation": "https://github.com/mshuflin/canvas_hassio",
   "issue_tracker": "https://github.com/mshuflin/canvas_hassio/issues",
   "requirements": [
-    "canvas_parent_api @ git+https://github.com/mshuflin/canvas_parent_api.git@master"
+    "canvas-parent-api==0.0.23"
   ],
   "codeowners": [
     "@mshuflin"
